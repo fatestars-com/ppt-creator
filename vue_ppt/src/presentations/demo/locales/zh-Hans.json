@@ -1,0 +1,21 @@
+{
+  "hero": {
+    "title": "炫酷演示",
+    "subtitle": "体验统一的背景与主题管理"
+  },
+  "labels": {
+    "currentBackground": "当前背景",
+    "activeLocale": "语言",
+    "openSettingsHint": "使用 {shortcut} 打开设置面板"
+  },
+  "locales": {
+    "en": {
+      "label": "英语",
+      "nativeLabel": "English"
+    },
+    "zh-Hans": {
+      "label": "简体中文",
+      "nativeLabel": "简体中文"
+    }
+  }
+}

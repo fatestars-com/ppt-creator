@@ -1,0 +1,29 @@
+# Dependencies
+vue_ppt/node_modules/
+
+# Build outputs
+vue_ppt/dist/
+vue_ppt/.output/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Cache
+*.tsbuildinfo
+.vue-tsc-cache/

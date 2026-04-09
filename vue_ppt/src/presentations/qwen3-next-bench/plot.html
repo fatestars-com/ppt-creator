@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>Bench 可视化对比</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; background: #1a1a1a; color: #e0e0e0; }
+    h1 { font-size: 20px; margin: 0 0 12px; color: #ffffff; }
+    .card { border: 1px solid #444; border-radius: 8px; padding: 16px; background: #2a2a2a; }
+    .legend { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+    .legend-item { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; padding: 4px 8px; border-radius: 6px; border: 1px solid #555; background: #333; color: #e0e0e0; }
+    .legend-item.inactive { opacity: 0.45; background: #2a2a2a; }
+    .swatch { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
+    svg { background: #1e1e1e; border: 1px solid #444; border-radius: 4px; display: block; margin: 0 auto; max-width: 100%; }
+    #plot { display: flex; justify-content: center; width: 100%; }
+    label { font-size: 14px; color: #e0e0e0; }
+    .controls { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+    .tabs { display: flex; gap: 8px; margin: 8px 0 12px; }
+    .tab { padding: 8px 14px; border-radius: 6px; border: 1px solid #555; background: #333; cursor: pointer; font-size: 14px; color: #e0e0e0; }
+    .tab.active { background: #4a5568; border-color: #6b7280; color: #ffffff; font-weight: 600; }
+  </style>
+  <script>
+    const COLORS = [
+      '#60a5fa','#fbbf24','#34d399','#f87171','#c084fc',
+      '#fb923c','#f472b6','#e5e7eb','#eab308','#22d3ee'
+    ];
+
+    // state.series: { label -> [{x, y_tp, y_ttft}] }
+    // state.visible: { label -> boolean }
+    // state.order: label[] for stable color assignment
+    const state = { series: {}, visible: {}, order: [], active: 'tp' }; // 'tp' | 'ttft'
+
+    function parseFiles(files) {
+      return Promise.all(Array.from(files).map(f => f.text().then(t => ({name: f.name, data: JSON.parse(t)}))));
+    }
+
+    function fileObjToSeries(fo) {
+      // Convert a single file object to series array
+      const arr = [];
+      for (const r of (fo.data.results || [])) {
+        if (!r.ok) continue;
+        const x = r.input_len;
+        const ytp = r.output_token_throughput_tok_s;
+        const yttft = r.ttft_ms;
+        if (!isFinite(x) || !isFinite(ytp) || !isFinite(yttft)) continue;
+        arr.push({ x, y_tp: ytp, y_ttft: yttft });
+      }
+      arr.sort((a,b) => a.x - b.x);
+      return arr;
+    }
+
+    function extent(values) {
+      let mn = Infinity, mx = -Infinity;
+      for (const v of values) { if (v < mn) mn = v; if (v > mx) mx = v; }
+      if (!isFinite(mn)) mn = 0;
+      if (!isFinite(mx)) mx = 1;
+      return [mn, mx];
+    }
+
+    function makeScale(domainMin, domainMax, rangeMin, rangeMax) {
+      const span = domainMax - domainMin || 1;
+      const rspan = rangeMax - rangeMin || 1;
+      return v => rangeMin + ( (v - domainMin) / span ) * rspan;
+    }
+
+    function clear(el) { while (el.firstChild) el.removeChild(el.firstChild); }
+
+    function niceStep(rawStep) {
+      const pow10 = Math.pow(10, Math.floor(Math.log10(rawStep)));
+      const n = rawStep / pow10;
+      let nice;
+      if (n <= 1) nice = 1;
+      else if (n <= 2) nice = 2;
+      else if (n <= 5) nice = 5;
+      else nice = 10;
+      return nice * pow10;
+    }
+
+    function niceDomain(min, max, ticksTarget) {
+      if (!(isFinite(min) && isFinite(max))) return [0, 1, 1];
+      if (min === max) { const e = Math.abs(min) || 1; return [min - e/2, max + e/2, 1]; }
+      const span = max - min;
+      const roughStep = span / Math.max(1, ticksTarget);
+      const step = niceStep(roughStep);
+      const nmin = Math.floor(min / step) * step;
+      const nmax = Math.ceil(max / step) * step;
+      return [nmin, nmax, step];
+    }
+
+    function drawScatter(container, title, grouped, labels, pickY, yLabel) {
+      clear(container);
+      // Maintain a responsive 4:3 aspect ratio that fits within viewport without scrollbars
+      const rect = container.getBoundingClientRect();
+      const fallbackWidth = window.innerWidth ? Math.max(window.innerWidth - 64, 320) : 960;
+      const baseWidth = rect.width && rect.width > 0 ? rect.width : fallbackWidth;
+      const ratio = 4 / 3;
+      let width = Math.min(baseWidth, 1100);
+      let height = width / ratio;
+      const rawAvailableHeight = (window.innerHeight && rect.top !== undefined)
+        ? window.innerHeight - rect.top - 48
+        : Number.POSITIVE_INFINITY;
+      const maxHeight = Number.isFinite(rawAvailableHeight) && rawAvailableHeight > 0
+        ? rawAvailableHeight
+        : Number.POSITIVE_INFINITY;
+      if (height > maxHeight) {
+        height = maxHeight;
+        width = height * ratio;
+        if (width > baseWidth) {
+          width = baseWidth;
+          height = width / ratio;
+        }
+      }
+      const margin = {top: 40, right: 24, bottom: 56, left: 80};
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('width', width);
+      svg.setAttribute('height', height);
+      container.appendChild(svg);
+
+      const allX = [], allY = [];
+      for (const label of labels) {
+        const series = grouped[label] || [];
+        for (const d of series) { allX.push(d.x); allY.push(pickY(d)); }
+      }
+      const [xminRaw, xmaxRaw] = extent(allX);
+      const [yminRaw, ymaxRaw] = extent(allY);
+
+      // Determine tick targets from pixel density
+      const plotW = width - margin.left - margin.right;
+      const plotH = height - margin.top - margin.bottom;
+      const xTicksTarget = Math.max(4, Math.floor(plotW / 140));
+      const yTicksTarget = Math.max(5, Math.floor(plotH / 110));
+
+      const [xmin, xmax] = niceDomain(xminRaw, xmaxRaw, xTicksTarget);
+      const [ymin, ymax] = niceDomain(yminRaw, ymaxRaw, yTicksTarget);
+
+      const x = makeScale(xmin, xmax, margin.left, width - margin.right);
+      const y = makeScale(ymax, ymin, margin.top, height - margin.bottom); // invert y
+
+      // Axes
+      const axisStyle = 'stroke:#666;stroke-width:1';
+      const mkLine = (x1,y1,x2,y2) => {
+        const l = document.createElementNS(svg.namespaceURI, 'line'); l.setAttribute('x1',x1); l.setAttribute('y1',y1); l.setAttribute('x2',x2); l.setAttribute('y2',y2); l.setAttribute('style',axisStyle); return l;
+      };
+      svg.appendChild(mkLine(margin.left, height - margin.bottom, width - margin.right, height - margin.bottom));
+      svg.appendChild(mkLine(margin.left, margin.top, margin.left, height - margin.bottom));
+
+      // Title
+      const titleEl = document.createElementNS(svg.namespaceURI, 'text');
+      titleEl.setAttribute('x', (width/2));
+      titleEl.setAttribute('y', 26);
+      titleEl.setAttribute('text-anchor', 'middle');
+      titleEl.setAttribute('fill', '#ffffff');
+      titleEl.textContent = title;
+      svg.appendChild(titleEl);
+
+      // Axis labels
+      const xLabel = document.createElementNS(svg.namespaceURI, 'text');
+      xLabel.setAttribute('x', (width/2));
+      xLabel.setAttribute('y', height - 8);
+      xLabel.setAttribute('text-anchor', 'middle');
+      xLabel.setAttribute('fill', '#e0e0e0');
+      xLabel.textContent = 'Input Length';
+      svg.appendChild(xLabel);
+
+      const yLabelEl = document.createElementNS(svg.namespaceURI, 'text');
+      yLabelEl.setAttribute('transform', `translate(16, ${height/2}) rotate(-90)`);
+      yLabelEl.setAttribute('text-anchor', 'middle');
+      yLabelEl.setAttribute('fill', '#e0e0e0');
+      yLabelEl.textContent = yLabel;
+      svg.appendChild(yLabelEl);
+
+      // Ticks using nice domain and pixel-based step
+      const tickStyle = 'fill:#b0b0b0;font-size:12px';
+      const gridStyle = 'stroke:#404040;stroke-width:1';
+      function ticksFrom(min, max, step) {
+        const arr = [];
+        if (!isFinite(step) || step <= 0) return arr;
+        const start = Math.ceil(min / step) * step;
+        for (let v = start; v <= max + 1e-9; v += step) arr.push(+v.toFixed(12));
+        return arr;
+      }
+
+      const xStep = niceStep((xmax - xmin) / Math.max(1, xTicksTarget));
+      const yStep = niceStep((ymax - ymin) / Math.max(1, yTicksTarget));
+
+      // X axis ticks + grid
+      for (const tx of ticksFrom(xmin, xmax, xStep)) {
+        const px = x(tx), py = height - margin.bottom;
+        svg.appendChild(mkLine(px, margin.top, px, py)); // grid line
+        svg.lastChild.setAttribute('style', gridStyle);
+        svg.appendChild(mkLine(px, py, px, py+6));
+        const t = document.createElementNS(svg.namespaceURI, 'text');
+        t.setAttribute('x', px); t.setAttribute('y', py+16); t.setAttribute('text-anchor','middle'); t.setAttribute('style', tickStyle);
+        t.textContent = Number.isInteger(tx) ? tx : (+tx.toFixed(2));
+        svg.appendChild(t);
+      }
+      // Y axis ticks + grid
+      for (const ty of ticksFrom(ymin, ymax, yStep)) {
+        const px = margin.left, py = y(ty);
+        svg.appendChild(mkLine(margin.left, py, width - margin.right, py)); // grid line
+        svg.lastChild.setAttribute('style', gridStyle);
+        svg.appendChild(mkLine(px-6, py, px, py));
+        const t = document.createElementNS(svg.namespaceURI, 'text');
+        t.setAttribute('x', px-10); t.setAttribute('y', py+4); t.setAttribute('text-anchor','end'); t.setAttribute('style', tickStyle);
+        t.textContent = Number.isInteger(ty) ? ty : (+ty.toFixed(2));
+        svg.appendChild(t);
+      }
+
+      // Lines per series (draw first)
+      labels.forEach((label) => {
+        const color = COLORS[(state.order.indexOf(label)) % COLORS.length];
+        const arr = grouped[label];
+        if (!arr || arr.length === 0) return;
+        let dstr = '';
+        for (let i = 0; i < arr.length; i++) {
+          const px = x(arr[i].x), py = y(pickY(arr[i]));
+          dstr += (i === 0 ? `M ${px} ${py}` : ` L ${px} ${py}`);
+        }
+        const path = document.createElementNS(svg.namespaceURI, 'path');
+        path.setAttribute('d', dstr);
+        path.setAttribute('fill', 'none');
+        path.setAttribute('stroke', color);
+        path.setAttribute('stroke-width', 3.5);
+        path.setAttribute('stroke-opacity', 0.85);
+        path.setAttribute('stroke-linejoin', 'round');
+        path.setAttribute('stroke-linecap', 'round');
+        svg.appendChild(path);
+      });
+
+      // Points (smaller radius)
+      labels.forEach((label) => {
+        const color = COLORS[(state.order.indexOf(label)) % COLORS.length];
+        for (const d of (grouped[label] || [])) {
+          const cx = x(d.x), cy = y(pickY(d));
+          const c = document.createElementNS(svg.namespaceURI, 'circle');
+          c.setAttribute('cx', cx); c.setAttribute('cy', cy); c.setAttribute('r', 2.2); c.setAttribute('fill', color);
+          c.setAttribute('opacity', 0.95);
+          c.setAttribute('title', `${label}: x=${d.x}, y=${pickY(d)}`);
+          svg.appendChild(c);
+        }
+      });
+    }
+
+    function renderActive() {
+      const plot = document.getElementById('plot');
+      // Build grouped from visible selections in order
+      const activeLabels = state.order.filter(l => state.visible[l]);
+      const grouped = {};
+      for (const l of activeLabels) grouped[l] = state.series[l];
+      if (state.active === 'tp') {
+        drawScatter(plot, 'Output Token Throughput vs Input Length', grouped, activeLabels, d => d.y_tp, 'Throughput (tok/s)');
+      } else {
+        drawScatter(plot, 'TTFT vs Input Length', grouped, activeLabels, d => d.y_ttft, 'TTFT (ms)');
+      }
+    }
+
+    function ensureUniqueLabel(base) {
+      if (!state.series[base] && !state.visible[base]) return base;
+      let i = 2;
+      while (state.series[`${base} (${i})`] || state.visible[`${base} (${i})`]) i++;
+      return `${base} (${i})`;
+    }
+
+    function renderLegend() {
+      const legend = document.getElementById('legend');
+      legend.innerHTML = '';
+      state.order.forEach((label, idx) => {
+        const item = document.createElement('div');
+        item.className = 'legend-item' + (state.visible[label] ? '' : ' inactive');
+        item.title = state.visible[label] ? '点击隐藏' : '点击显示';
+        const sw = document.createElement('span'); sw.className = 'swatch'; sw.style.background = COLORS[idx % COLORS.length];
+        const text = document.createElement('span'); text.textContent = label;
+        item.appendChild(sw); item.appendChild(text); legend.appendChild(item);
+        item.addEventListener('click', () => {
+          state.visible[label] = !state.visible[label];
+          renderLegend();
+          renderActive();
+        });
+      });
+    }
+
+    function addFiles(files) {
+      parseFiles(files).then(fileObjs => {
+        for (const fo of fileObjs) {
+          const base = fo.name;
+          const label = ensureUniqueLabel(base);
+          const arr = fileObjToSeries(fo);
+          state.series[label] = arr;
+          if (!state.order.includes(label)) state.order.push(label);
+          if (!(label in state.visible)) state.visible[label] = true;
+        }
+        renderLegend();
+        renderActive();
+      }).catch(err => {
+        alert('解析文件失败: ' + err.message);
+        console.error(err);
+      });
+    }
+  </script>
+</head>
+<body>
+  <h1>vLLM Bench 结果对比</h1>
+  <div class="controls">
+    <label>选择一个或多个 JSON 结果文件：</label>
+    <input id="file" type="file" multiple accept="application/json"/>
+  </div>
+  <div class="tabs">
+    <button class="tab active" id="tab-tp">吞吐率 (tok/s)</button>
+    <button class="tab" id="tab-ttft">TTFT (ms)</button>
+  </div>
+  <div id="legend" class="legend"></div>
+  <div class="card" id="plot-container">
+    <div id="plot"></div>
+  </div>
+
+  <script>
+    document.getElementById('file').addEventListener('change', (e) => { addFiles(e.target.files); e.target.value = ''; });
+
+    document.getElementById('tab-tp').addEventListener('click', () => {
+      state.active = 'tp';
+      document.getElementById('tab-tp').classList.add('active');
+      document.getElementById('tab-ttft').classList.remove('active');
+      renderActive();
+    });
+    document.getElementById('tab-ttft').addEventListener('click', () => {
+      state.active = 'ttft';
+      document.getElementById('tab-ttft').classList.add('active');
+      document.getElementById('tab-tp').classList.remove('active');
+      renderActive();
+    });
+
+    // Redraw on resize to keep axes and density crisp relative to pixels
+    window.addEventListener('resize', () => renderActive());
+  </script>
+</body>
+</html>

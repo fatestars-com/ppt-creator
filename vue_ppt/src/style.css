@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --surface: 17 24 39;
+    --surface-muted: 30 41 59;
+    --text-primary: 226 232 240;
+    --text-muted: 148 163 184;
+    --accent: 129 140 248;
+    --border: 71 85 105;
+    --highlight: 253 224 71;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    @apply bg-surface text-text-primary antialiased transition-colors duration-300 font-sans;
+  }
+
+  body::selection {
+    background-color: rgb(var(--highlight) / 0.3);
+    color: rgb(var(--text-primary));
+  }
+}

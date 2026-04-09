@@ -1,0 +1,21 @@
+{
+  "hero": {
+    "title": "Amazing Presentation",
+    "subtitle": "Experience the unified background and theming manager"
+  },
+  "labels": {
+    "currentBackground": "Current background",
+    "activeLocale": "Language",
+    "openSettingsHint": "Use {shortcut} to open the settings overlay"
+  },
+  "locales": {
+    "en": {
+      "label": "English",
+      "nativeLabel": "English"
+    },
+    "zh-Hans": {
+      "label": "Chinese (Simplified)",
+      "nativeLabel": "简体中文"
+    }
+  }
+}
