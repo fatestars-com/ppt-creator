@@ -21,70 +21,19 @@ const categories = ref<Category[]>([
     id: 'jianyi-zhujian',
     name: '剑意逐帧',
     expanded: true,
-    presentations: [
-      {
-        id: 'jianyi-zhujian-v1',
-        title: 'V1 · 红色粒子风',
-        description: '深色粒子背景 · 红色强调风格',
-        route: '/jianyi-zhujian-v1'
-      },
-      {
-        id: 'jianyi-zhujian-v2',
-        title: 'V2 · 红色粒子风',
-        description: '深色粒子背景 · 红色强调风格',
-        route: '/jianyi-zhujian-v2'
-      },
-      {
-        id: 'hermes-agent-framework',
-        title: 'Hermes AgentFramework',
-        description: '蚂蚁集团开源AI Agent开发框架 · MCP协议详解',
-        route: '/hermes-agent-framework'
-      }
-    ]
+    presentations: []
   },
   {
     id: 'ai-skill-tree',
     name: 'AI邪修PPT',
     expanded: false,
-    presentations: [
-      {
-        id: 'ai-skill-tree',
-        title: 'AI Skill Tree ',
-        description: '点亮隐藏技能树的关键节点',
-        route: '/ai-skill-tree'
-      },
-      {
-        id: 'cognition-framework',
-        title: '认知框架',
-        description: '你赚不到钱不是因为不够努力',
-        route: '/cognition-framework'
-      }
-    ]
+    presentations: []
   },
   {
     id: 'demo',
     name: '演示模板',
     expanded: false,
-    presentations: [
-      {
-        id: 'demo',
-        title: 'Demo Presentation',
-        description: '具有现代功能的交互式演示演示',
-        route: '/demo'
-      },
-      {
-        id: 'qwen3-next-bench',
-        title: 'Qwen3‑Next Bench',
-        description: '基准分析和性能洞察',
-        route: '/qwen3-next-bench'
-      },
-      {
-        id: 'design-language-template',
-        title: '设计语言模板',
-        description: '基于设计语言的多版式中文模板（含动效/互动）',
-        route: '/design-language-template'
-      }
-    ]
+    presentations: []
   }
 ])
 
